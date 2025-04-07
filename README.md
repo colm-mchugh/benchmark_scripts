@@ -1,6 +1,6 @@
 
 # Setup
-Setup for running bcc and flamegraph in a docker container
+Setup for generating on and off flamegraphs in a docker container
 
 ## Install packages:
 
