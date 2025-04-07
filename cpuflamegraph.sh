@@ -1,4 +1,3 @@
-export FG=`pwd`FlameGraph
 perf record -F 999 -p 1 --call-graph dwarf sleep $2
 echo "Finished perf record"
 perf script | $FG/stackcollapse-perf.pl > out.perf-folded
