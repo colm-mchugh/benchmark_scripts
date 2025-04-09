@@ -1,28 +1,53 @@
 
 # Setup
-Setup for generating on and off flamegraphs in a docker container
+Setup for generating cpu and off-cpu flamegraphs in a docker container
 
-## Install packages:
+## Pre-requisites
+
+### Install `perf` in the container; requires `--privileged` mode. Rebuild the container if necessary.
+
+```
+#identify the container you want to generate profiles in
+sudo docker ps
+sudo docker inspect <container name> | python3 /usr/local/bin/docker_inspect_json_to_docker_run_cli.py > run_docker.sh
+# check that '--privileged' argument is present, add it as first argument to startup if not
+vim run_docker.sh
+
+# Rebuild the container if necessary
+sudo chmod +x run_docker.sh 
+sudo docker stop <container name>
+sudo docker rm  <container name> 
+sudo ./run_docker.sh
+
+#  Connect to the container, and install perf
+sudo docker exec -it -u root <container name> bash
+tdnf install kernel-tools
+```
+
+## CPU and off-CPU flamegrapsh
+
+### Install packages:
 
 ``` 
 tdnf install python3-bcc kernel-devel kernel-headers bcc-tools bpftrace
 tdnf install kernel-devel-$(uname -r)
 tdnf install kernel-headers-$(uname -r)
+tdnf install git
 ```
 
-## Mount debugfs:
+### Mount debugfs:
 ```
 mount -t debugfs debugfs /sys/kernel/debug
 ```
 
-## Get Flamegraph and bcc source
+### Get `FlameGraph` and `bcc` source
 
 ```
 git clone https://github.com/brendangregg/FlameGraph.git
 git clone https://github.com/iovisor/bcc.git
 ```
 
-## Change bcc source:
+### Change `bcc` source:
 
 ```
 diff --git a/tools/offcputime.py b/tools/offcputime.py
