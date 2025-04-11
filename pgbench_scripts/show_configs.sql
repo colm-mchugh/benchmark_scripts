@@ -1,0 +1,10 @@
+;
+show citus.executor_slow_start_interval;
+show citus.force_max_query_parallelization;
+show citus.local_shared_pool_size;
+show citus.max_adaptive_executor_pool_size;
+show citus.max_cached_connection_lifetime;
+show citus.max_cached_conns_per_worker;
+show citus.max_client_connections;
+show citus.max_shared_pool_size;
+show max_connections;
