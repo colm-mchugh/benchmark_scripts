@@ -7,6 +7,6 @@ threads=$3
 trials=$4
 outfile=$5
 
-setsid $HOME/run_pgbench.sh $duration $script $threads $trials > $outfile 2>&1 < /dev/null &
-sleep 5
+setsid `pwd`/run_pgbench.sh $duration $script $threads $trials > $outfile 2>&1 < /dev/null &
+sleep 1
 ps -ef |grep pgbench
