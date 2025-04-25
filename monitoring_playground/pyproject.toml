@@ -1,0 +1,19 @@
+[project]
+name = "monitoring-playground"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = "~=3.11"
+dependencies = [
+  "azure-identity~=1.0",
+  "azure-mgmt-monitor~=6.0",
+  "polars[numpy,plot,pyarrow,pydantic,style]~=1.0",
+  "typer~=0.15.0"
+]
+
+[dependency-groups]
+dev = ["jupyterlab~=4.0"]
+lint = ["ruff"]
+
+[tool.uv]
+default-groups = ["dev", "lint"]
