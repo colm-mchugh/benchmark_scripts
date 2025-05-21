@@ -54,7 +54,8 @@ fw.write('  do\n')
 for instance in instances:
   for param_combination in parameter_combinations:
     for param_name, param_value in param_combination.items():
-      fw.write(f'    az postgres flexible-server parameter set --resource-group XXX --server-name {instance["PGHOST"]} --name {param_name} --value {param_value}\n')
+      server_name = instance["PGHOST"].split('.')[0]
+      fw.write(f'    az postgres flexible-server parameter set --resource-group XXX --server-name {server_name} --name {param_name} --value {param_value}\n')
     for env_var, value in instance.items():
         fw.write(f"    export {env_var}={value}\n")
     fw.write('    echo "PGHOST:" `env|grep PGHOST` \n')
