@@ -1,0 +1,6 @@
+[
+  { "PGHOST": "ec1.postgres.database.azure.com", "PGUSER": "myadmin", "PGPORT": "5432", "PGPASSWORD": "Oranje11", "PGDATABASE": "postgres" },
+  { "PGHOST": "ec2.postgres.database.azure.com", "PGUSER": "myadmin", "PGPORT": "7432", "PGPASSWORD": "Oranje11", "PGDATABASE": "postgres" },
+  { "PGHOST": "ec4.postgres.database.azure.com", "PGUSER": "myadmin", "PGPORT": "7432", "PGPASSWORD": "Oranje11", "PGDATABASE": "postgres" },
+  { "PGHOST": "ec8.postgres.database.azure.com", "PGUSER": "myadmin", "PGPORT": "7432", "PGPASSWORD": "Oranje11", "PGDATABASE": "postgres" }
+]
