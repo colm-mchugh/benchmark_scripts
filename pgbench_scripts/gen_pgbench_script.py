@@ -2,28 +2,13 @@
 
 import os
 import itertools
+import json
 
 clients = ['128', '256', '385', '512']
-instances = [ { "PGHOST": "ec1.postgres.database.azure.com", 
-               "PGUSER": "myadmin", 
-               "PGPORT": "5432", 
-               "PGPASSWORD": "Oranje11", 
-               "PGDATABASE": "postgres"  }, 
-             { "PGHOST": "ec2.postgres.database.azure.com", 
-               "PGUSER": "myadmin", 
-               "PGPORT": "7432", 
-               "PGPASSWORD": "Oranje11", 
-               "PGDATABASE": "postgres"  }, 
-             { "PGHOST": "ec4.postgres.database.azure.com", 
-               "PGUSER": "myadmin", 
-               "PGPORT": "7432", 
-               "PGPASSWORD": "Oranje11", 
-               "PGDATABASE": "postgres"  }, 
-              { "PGHOST": "ec8.postgres.database.azure.com", 
-               "PGUSER": "myadmin", 
-               "PGPORT": "7432", 
-               "PGPASSWORD": "Oranje11", 
-               "PGDATABASE": "postgres"  },] 
+
+# Read instances from the file
+with open('instances.json', 'r') as f:
+  instances = json.load(f)
 
 # Parameters to set in the server. 
 server_parameters = [ 
