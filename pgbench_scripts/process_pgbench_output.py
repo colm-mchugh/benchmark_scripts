@@ -3,6 +3,7 @@
 import sys
 import os
 import argparse
+import json
 
 from os.path import expanduser
 
@@ -23,9 +24,24 @@ run_label=input_file.split('.out')[0]
 lines = [l.strip() for l in open(input_file)]
 pgbrs = []
 pgbr = {}
-
-for line in lines:
-    if line.startswith('PGHOST'):
+parameters = {}
+i = 0
+while i < len(lines):
+    line = lines[i]
+    i =  i + 1 
+    if line.startswith('{'):
+        name = ""
+        value = ""
+        while i < len(lines) and not lines[i].startswith('}'):
+            param_line = lines[i]
+            i = i + 1
+            if param_line.startswith('"name"'):
+                name = '"' + param_line.split(':', 1)[1].strip().strip('",') + '"'
+            elif param_line.startswith('"value"'):
+                value = '"' + param_line.split(':', 1)[1].strip().strip('",') + '"'
+        i = i + 1
+        parameters[name] = value
+    elif line.startswith('PGHOST'):
         pgbr['pghost'] = (line.split('=')[1]) 
         pgbr['cluster'] = pgbr['pghost'].split('.')[0]
         pgbr['label'] = run_label
@@ -34,8 +50,10 @@ for line in lines:
     elif line.startswith('end time: '):
         pgbr['end_time'] = wrap_quotes(line.split('end time: ')[1])
         if 'tps' in pgbr.keys():
+            pgbr['parameters'] = json.dumps(parameters)
             pgbrs.append(pgbr)
         pgbr={}
+        parameters={}
     elif line.startswith('tps = '):
         pgbr['tps'] = line.split('tps = ')[1].split(' ')[0]
     elif line.startswith('latency average = '):
@@ -54,13 +72,13 @@ for line in lines:
         print("pgbench run encountered an error: %s\n", line)
 
 output=[]
-output_order=['label', 'cluster', 'clients', 'threads', 'duration', 'transactions', 'tps', 'latency_avg', 'latency_units', 'start_time', 'end_time', 'pghost']
+output_order=['label', 'cluster', 'clients', 'threads', 'duration', 'transactions', 'tps', 'latency_avg', 'latency_units', 'start_time', 'end_time', 'pghost', 'parameters']
 
 for pgbr in pgbrs:
     output_line=', '.join(pgbr[kval] for kval in output_order)
     output.append(output_line)
 
-output_dir = expanduser("~") + "/"
+output_dir = expanduser("~") + "/benchmark_scripts/pgbench_scripts/"
 
 if args.maketable:
     ddlf = 'create_pgbench.sql'
@@ -71,7 +89,7 @@ if args.maketable:
     fsql.write("    label text, cluster text, clients int, threads int, \n")
     fsql.write("    duration int, transactions bigint, tps float, latency_avg float, \n")
     fsql.write("    latency_units varchar(12), start_time timestamp, end_time timestamp,\n")
-    fsql.write("    pghost text, run_id serial primary key);\n")
+    fsql.write("    pghost text, parameters JSONB, run_id serial primary key);\n")
     fsql.close()
     create_cmd = 'psql -f ' + ddlf_path
     os.system(create_cmd)
@@ -83,9 +101,9 @@ dmlf_path = output_dir + '/' + dmlf
 f = open(dmlf_path, 'w')
 f.write("COPY pgbench_results(")
 f.write(','.join(col_name for col_name in output_order))
-f.write(")   FROM stdin delimiter ',' csv;\n")
+f.write(")   FROM stdin delimiter '&' escape '\\' csv;\n")
 for pgbr in pgbrs:
-    csv_formatted_line=','.join(pgbr[kval] for kval in output_order)
+    csv_formatted_line='&'.join(pgbr[kval] for kval in output_order)
     f.write(csv_formatted_line + '\n')
 f.close()
 load_cmd = 'psql -f ' + dmlf_path
