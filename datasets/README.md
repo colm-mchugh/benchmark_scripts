@@ -10,6 +10,113 @@ ends with `ANALYZE` so the advisor sees fresh `pg_class` / `pg_stats` data.
 | [analytics_events.sql](analytics_events.sql) | `analytics_events` | Product analytics / event tracking | Power-law over `user_id` (sessions), `event_type_id` and `page_id` (events). 8 tables, ~1.25M rows. |
 | [social_graph.sql](social_graph.sql) | `social_graph` | Social network / DMs — **the hard one** | Self-FKs, polymorphic FKs, celebrity skew, M:N junctions with competing distribution keys. 8 tables, ~1.7M rows. |
 
+## Workload scripts (pgbench)
+
+Per-dataset workload scripts live in [workloads/](workloads/). They use
+pgbench's `\if/\elif/\endif` weighted-branch pattern and a Zipfian tenant
+pick (`random_zipfian`) so request skew mirrors data skew — i.e. whales get
+hit more often, which is what makes hot-shard / data-skew issues observable.
+
+| Dataset | Script | Mix |
+| --- | --- | --- |
+| `oltp_shop` | [workloads/oltp_shop_read.sql](workloads/oltp_shop_read.sql) | 100% read |
+| `oltp_shop` | [workloads/oltp_shop_mixed.sql](workloads/oltp_shop_mixed.sql) | 80% read / 20% write |
+| `analytics_events` | [workloads/analytics_events_read.sql](workloads/analytics_events_read.sql) | 100% read — 80% per-user + 20% cross-cutting dashboard aggregates |
+| `analytics_events` | [workloads/analytics_events_mixed.sql](workloads/analytics_events_mixed.sql) | 50% read / 50% write — live event ingest + dashboards |
+| `social_graph` | [workloads/social_graph_read.sql](workloads/social_graph_read.sql) | 100% read — symmetric pairs for strategy-A vs strategy-B comparison |
+| `social_graph` | [workloads/social_graph_mixed.sql](workloads/social_graph_mixed.sql) | 60% read / 40% write — FOLLOW + LIKE writes deliberately hit celebrity / viral hot shards |
+
+## Citus distribution prep scripts
+
+Each dataset has a matching `citus_prep_*.sql` script that turns the plain
+Postgres schema into a fully distributed Citus schema in one shot —
+including every PK / FK rewrite required by Citus's distribution rules
+(distributed PKs must include the dist column; FKs between two distributed
+tables must be on the dist column AND colocated). The scripts are
+idempotent (`IF EXISTS` guards + `DO/EXCEPTION` wrappers around
+`create_*_table`).
+
+| Dataset | Prep script | Notes |
+| --- | --- | --- |
+| `oltp_shop` | [citus_prep_oltp_shop.sql](citus_prep_oltp_shop.sql) | Reference + distributed mix. Composite PKs on the fact tables. |
+| `analytics_events` | [citus_prep_analytics_events.sql](citus_prep_analytics_events.sql) | 5 dimensions as reference tables, 3 facts colocated on `user_id`. |
+| `social_graph` | [citus_prep_social_graph.sql](citus_prep_social_graph.sql) | Strategy A. **Permanently drops 6 cross-shard FKs**, documented in the file header — those are the integrity rules the advisor should flag as "app-level only". |
+
+```bash
+psql -h <host> -p <port> -d <db> -f tmp/advisor_demo/<dataset>.sql
+psql -h <host> -p <port> -d <db> -f tmp/advisor_demo/citus_prep_<dataset>.sql
+```
+
+
+Each script is one pgbench transaction. Run with:
+
+```bash
+# Baseline (no distribution / wrong distribution / right distribution — same
+# command line, just re-run after each citus distribute_table change).
+pgbench -n -h <host> -p <port> -d <db> \
+        -f tmp/advisor_demo/workloads/oltp_shop_read.sql \
+        -T 60 -c 8 -j 4 -P 5 -M prepared
+
+pgbench -n -h <host> -p <port> -d <db> \
+        -f tmp/advisor_demo/workloads/oltp_shop_mixed.sql \
+        -T 60 -c 8 -j 4 -P 5 -M prepared
+```
+
+Typical comparison sequence (the advisor demo):
+
+1. Run the workload on the bare schema → baseline tps / p95.
+2. `SELECT create_distributed_table('oltp_shop.customers', 'customer_id');`
+   (and the other tables on the same key, plus `create_reference_table`
+   on `products` / `product_categories`), `ANALYZE`, re-run.
+3. Undistribute, distribute by a *wrong* key (e.g. `order_id`), re-run.
+4. Compare tps / p95 across the three runs.
+
+Why the OLTP scripts demonstrate distribution effectiveness:
+
+- Almost every read is tenant-scoped (`WHERE customer_id = :cid`) → with
+  the right distribution they are single-shard router queries; with a
+  wrong distribution they fan out across every shard.
+- The mixed-workload's `PLACE ORDER` branch is a multi-statement
+  transaction touching `orders` + `order_items` + `payments`, all with
+  the same `customer_id`. Colocated on `customer_id` it's a single-shard
+  write; colocated wrong (or distributed on different keys) it becomes a
+  multi-shard distributed transaction (2PC, much slower, more contention).
+- The product / category branches (small reference tables) are local on
+  every node iff those tables are declared reference tables — another
+  thing the workload measures end-to-end.
+- The Zipfian customer pick concentrates load on the same whales that the
+  data generator concentrates rows on, so any hot-shard issue from
+  distributing on a skewed key shows up immediately in tps / p95.
+
+The `social_graph` workloads take this a step further: they include
+**symmetric query pairs** (e.g. "who I follow" + "who follows me",
+"my likes" + "post's recent likers") so the *same* script reveals different
+bottlenecks under different distribution choices — that's the
+strategy-A-vs-strategy-B comparison the advisor needs to make visible. The
+mixed script's FOLLOW write uses a Zipfian celebrity target (α=4) and the
+LIKE write uses a Zipfian viral-post target (α=3), so writes pile onto the
+hot shards that would form under `followee_id` / `post_id` distribution —
+those branches stay cheap under `follower_id` / `user_id` distribution. Run
+the same `pgbench` invocation under each strategy and compare:
+
+```bash
+# Strategy A — follows by follower_id, likes by user_id
+psql -h <host> -p <port> -d <db> -f tmp/advisor_demo/citus_prep_social_graph.sql
+pgbench -n -f tmp/advisor_demo/workloads/social_graph_mixed.sql \
+        -T 60 -c 8 -j 4 -P 5 -M prepared
+
+# Strategy B — flip the symmetric tables (run after Strategy A's prep)
+psql -h <host> -p <port> -d <db> <<'SQL'
+SELECT undistribute_table('social_graph.follows', cascade_via_foreign_keys => true);
+SELECT undistribute_table('social_graph.likes',   cascade_via_foreign_keys => true);
+SELECT create_distributed_table('social_graph.follows', 'followee_id');
+SELECT create_distributed_table('social_graph.likes',   'post_id');
+ANALYZE;
+SQL
+pgbench -n -f tmp/advisor_demo/workloads/social_graph_mixed.sql \
+        -T 60 -c 8 -j 4 -P 5 -M prepared
+```
+
 ## OLTP Shop
 
 E-commerce / order-processing schema with a realistic power-law: a few "whale"
