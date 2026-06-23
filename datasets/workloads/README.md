@@ -198,14 +198,14 @@ pgbench -n -f tmp/advisor_demo/workloads/social_graph_mixed.sql \
 ```
 
 ```sql
--- Strategy B — flip the symmetric tables (run after Strategy A's prep)
-SELECT undistribute_table('social_graph.follows', cascade_via_foreign_keys => true);
-SELECT undistribute_table('social_graph.likes',   cascade_via_foreign_keys => true);
-SELECT create_distributed_table('social_graph.follows', 'followee_id');
-SELECT create_distributed_table('social_graph.likes',   'post_id');
-ANALYZE;
+-- Strategy B — a separate prep script. Drop Strategy A's distribution
+-- first, then run Strategy B's prep against a freshly reloaded schema.
+SELECT undistribute_table('social_graph.users',         cascade_via_foreign_keys => true);
+SELECT undistribute_table('social_graph.conversations', cascade_via_foreign_keys => true);
 ```
 ```bash
+psql -h localhost -p 9700 -d postgres -f tmp/advisor_demo/social_graph.sql
+psql -h localhost -p 9700 -d postgres -f tmp/advisor_demo/citus_prep_social_graph_b.sql
 pgbench -n -f tmp/advisor_demo/workloads/social_graph_mixed.sql \
         -T 60 -c 8 -j 4 -P 5 -M prepared -h localhost -p 9700 -d postgres
 ```

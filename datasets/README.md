@@ -40,7 +40,8 @@ idempotent (`IF EXISTS` guards + `DO/EXCEPTION` wrappers around
 | --- | --- | --- |
 | `oltp_shop` | [citus_prep_oltp_shop.sql](citus_prep_oltp_shop.sql) | Reference + distributed mix. Composite PKs on the fact tables. |
 | `analytics_events` | [citus_prep_analytics_events.sql](citus_prep_analytics_events.sql) | 5 dimensions as reference tables, 3 facts colocated on `user_id`. |
-| `social_graph` | [citus_prep_social_graph.sql](citus_prep_social_graph.sql) | Strategy A. **Permanently drops 6 cross-shard FKs**, documented in the file header — those are the integrity rules the advisor should flag as "app-level only". |
+| `social_graph` | [citus_prep_social_graph.sql](citus_prep_social_graph.sql) | **Strategy A**: follows by `follower_id`, posts by `author_id`, likes by `user_id`. Enforces 6 FKs; permanently drops 6 cross-shard FKs (documented in the file header). |
+| `social_graph` | [citus_prep_social_graph_b.sql](citus_prep_social_graph_b.sql) | **Strategy B**: follows by `followee_id`, posts by `post_id`, likes by `post_id`. Enforces 5 FKs (different ones — notably `likes.post_id→posts.post_id` becomes enforceable). Use this for the A/B demo. |
 
 ```bash
 psql -h <host> -p <port> -d <db> -f tmp/advisor_demo/<dataset>.sql
@@ -105,14 +106,14 @@ psql -h <host> -p <port> -d <db> -f tmp/advisor_demo/citus_prep_social_graph.sql
 pgbench -n -f tmp/advisor_demo/workloads/social_graph_mixed.sql \
         -T 60 -c 8 -j 4 -P 5 -M prepared
 
-# Strategy B — flip the symmetric tables (run after Strategy A's prep)
+# Strategy B — follows by followee_id, likes/posts by post_id
+# Reset Strategy A's distribution first, reload the data, then run Strategy B.
 psql -h <host> -p <port> -d <db> <<'SQL'
-SELECT undistribute_table('social_graph.follows', cascade_via_foreign_keys => true);
-SELECT undistribute_table('social_graph.likes',   cascade_via_foreign_keys => true);
-SELECT create_distributed_table('social_graph.follows', 'followee_id');
-SELECT create_distributed_table('social_graph.likes',   'post_id');
-ANALYZE;
+SELECT undistribute_table('social_graph.users',         cascade_via_foreign_keys => true);
+SELECT undistribute_table('social_graph.conversations', cascade_via_foreign_keys => true);
 SQL
+psql -h <host> -p <port> -d <db> -f tmp/advisor_demo/social_graph.sql
+psql -h <host> -p <port> -d <db> -f tmp/advisor_demo/citus_prep_social_graph_b.sql
 pgbench -n -f tmp/advisor_demo/workloads/social_graph_mixed.sql \
         -T 60 -c 8 -j 4 -P 5 -M prepared
 ```
